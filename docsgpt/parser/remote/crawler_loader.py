@@ -27,7 +27,11 @@ class CrawlerLoader(BaseRemote):
         # Keyed by normalize_page_url, so fragment and query-order variants of
         # one page are fetched once.
         visited_urls = set()
-        base_url = urlparse(url).scheme + "://" + urlparse(url).hostname
+        # Only follow links on the same host as the start URL. A substring
+        # check (``base_url in link``) would also match off-site URLs such as
+        # ``http://example.com.evil.io/docs`` or share links like
+        # ``https://twitter.com/share?url=http://example.com/docs``.
+        base_host = urlparse(url).hostname
         urls_to_visit = [url]
         loaded_content = []
 
@@ -70,9 +74,10 @@ class CrawlerLoader(BaseRemote):
                 try:
                     link = urljoin(current_url, a['href'])
                     link_key = normalize_page_url(link)
+                    link_host = urlparse(link).hostname
                 except ValueError:
                     continue
-                if base_url in link and link_key not in visited_urls:
+                if link_host == base_host and link_key not in visited_urls:
                     all_links.append(link)
 
             # Add new links to the list of URLs to visit if they haven't been visited yet

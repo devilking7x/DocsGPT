@@ -248,3 +248,35 @@ def test_malformed_link_does_not_abort_the_crawl(mock_pinned_request, mock_valid
     result = CrawlerLoader(limit=10).load_data("http://example.com")
 
     assert {d.extra_info["source"] for d in result} == {"http://example.com", "http://example.com/good"}
+
+
+@patch("docsgpt.parser.remote.crawler_loader.validate_url", side_effect=_mock_validate_url)
+@patch("docsgpt.parser.remote.crawler_loader.pinned_request")
+def test_crawler_does_not_follow_links_containing_start_url_off_site(mock_pinned_request, mock_validate_url):
+    """Regression test for #3011: the old ``base_url in link`` substring check
+    followed off-site links that merely contained the start URL, e.g. a
+    twitter share link or a lookalike subdomain. Only same-host links must
+    be crawled."""
+    responses = {
+        "http://example.com": DummyResponse(
+            "<html><body>"
+            "<a href='/docs'>Docs</a>"
+            "<a href='https://twitter.com/share?url=http://example.com/docs'>Share</a>"
+            "<a href='http://example.com.evil.io/docs'>Evil</a>"
+            "</body></html>"
+        ),
+        "http://example.com/docs": DummyResponse("<html><body>docs</body></html>"),
+    }
+
+    def response_side_effect(_method: str, url: str, timeout=30):
+        if url not in responses:
+            raise AssertionError(f"Unexpected request for URL: {url}")
+        return responses[url]
+
+    mock_pinned_request.side_effect = response_side_effect
+
+    result = CrawlerLoader(limit=5).load_data("http://example.com")
+
+    sources = {doc.extra_info.get("source") for doc in result}
+    assert sources == {"http://example.com", "http://example.com/docs"}
+    assert mock_pinned_request.call_count == 2
